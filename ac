@@ -1,0 +1,98 @@
+#!/bin/bash
+#
+# ac — Auto Claude
+#
+# Launches Claude Code in the current kitty tab.
+# Must be run from inside a remote-control-enabled kitty terminal.
+#
+# Usage:
+#   ac                  # new session
+#   ac -r               # resume previous session
+#   ac -o <opts>        # extra claude options (must be last flag)
+#
+# Sessions tracked in ${XDG_RUNTIME_DIR:-/tmp}/ac/sessions as tab-separated:
+#   window_id\ttab_id\tpwd
+#
+# Per-user tmpfs path; entries are cleared on reboot (the kitty windows
+# they refer to are gone too, so persisting them across reboots would
+# only produce stale references).
+#
+
+SESSIONS_DIR="${XDG_RUNTIME_DIR:-/tmp}/ac"
+SESSIONS_FILE="$SESSIONS_DIR/sessions"
+
+# --- Must be inside kitty ---
+if [ -z "$KITTY_WINDOW_ID" ]; then
+    echo "ac must be run from inside kitty with remote control enabled"
+    exit 1
+fi
+
+# --- Parse arguments ---
+RESUME=false
+EXTRA_OPTS=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -r)
+            RESUME=true
+            shift
+            ;;
+        -o)
+            shift
+            EXTRA_OPTS="$*"
+            break
+            ;;
+        -h|--help)
+            echo "Usage: ac [-r] [-o <claude options>]"
+            echo ""
+            echo "  -r          Resume previous Claude session"
+            echo "  -o <opts>   Extra claude CLI options (must be last flag)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
+# --- Get window and tab IDs ---
+WINDOW_ID="$KITTY_WINDOW_ID"
+TAB_ID=$(kitty @ ls 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for oswin in data:
+    for tab in oswin.get('tabs', []):
+        for win in tab.get('windows', []):
+            if win.get('id') == $WINDOW_ID:
+                print(tab['id'])
+                sys.exit(0)
+print('')
+" 2>/dev/null)
+
+if [ -z "$TAB_ID" ]; then
+    echo "Cannot determine tab ID"
+    exit 1
+fi
+
+WORK_DIR="$(pwd)"
+
+# --- Build claude command ---
+CLAUDE_CMD="claude --dangerously-skip-permissions"
+
+if [ "$RESUME" = true ]; then
+    CLAUDE_CMD="$CLAUDE_CMD --resume"
+fi
+
+if [ -n "$EXTRA_OPTS" ]; then
+    CLAUDE_CMD="$CLAUDE_CMD $EXTRA_OPTS"
+fi
+
+# --- Register session ---
+mkdir -p "$SESSIONS_DIR"
+touch "$SESSIONS_FILE"
+printf '%s\t%s\t%s\n' "$WINDOW_ID" "$TAB_ID" "$WORK_DIR" >> "$SESSIONS_FILE"
+
+# --- Run claude, then deregister on exit ---
+$CLAUDE_CMD
+sed -i "/^${WINDOW_ID}	${TAB_ID}	/d" "$SESSIONS_FILE"

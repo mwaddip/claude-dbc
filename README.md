@@ -41,18 +41,51 @@ Just rerun `npx github:mwaddip/claude-dbc` — `npx` re-clones the repo each inv
 
 ## Optional: `ac` (kitty session launcher)
 
-The `dispatching-prompts` skill assumes you can launch new agent sessions in named terminal windows. The author uses kitty + a tiny shell script called `ac` (Auto Claude). It saves significant tokens compared to invoking `kitty @ ls` every time you need to find a session — `ac` maintains a small flat session-registry file the agent can `grep` instead of parsing kitty's JSON.
+The `dispatching-prompts` skill assumes you can launch agent sessions in named terminal windows that other sessions can find. The author uses kitty + a small bash script called `ac` (Auto Claude), shipped at the top of this repo. `ac` runs `claude` in the current kitty tab and writes a row to a flat session-registry file — so a parent Claude session can `grep <component> ${XDG_RUNTIME_DIR:-/tmp}/ac/sessions` instead of parsing the kilobytes of JSON `kitty @ ls` returns. Token savings add up across a long session.
 
-`ac` lives in its own repo. To use:
+### Requirements
+
+- [kitty](https://sw.kovidgoyal.net/kitty/) with remote control enabled (`allow_remote_control yes` in `~/.config/kitty/kitty.conf`)
+- [Claude Code](https://claude.com/claude-code) CLI on `PATH` as `claude`
+- bash, python3 (one inline `kitty @ ls` JSON parse), GNU coreutils
+
+### Install
+
+If you're going to use `npx` to install the skills anyway, the simplest setup is to clone this repo once and symlink `ac` from somewhere on your `PATH`:
 
 ```
-git clone https://github.com/mwaddip/ac.git ~/projects/ac
-ln -s ~/projects/ac/ac ~/.local/bin/ac     # or anywhere on your PATH
+git clone https://github.com/mwaddip/claude-dbc.git ~/projects/claude-dbc
+ln -s ~/projects/claude-dbc/ac ~/.local/bin/ac     # or anywhere on PATH
 ```
 
-It's about 90 lines of bash, kitty-only, no dependencies. Read it before you trust it.
+To update: `cd ~/projects/claude-dbc && git pull`. The symlink follows.
 
-If you're not on kitty, the `dispatching-prompts` skill still applies as a *concept* (file-path prompt injection between agent sessions) but the kitty-specific commands won't work directly.
+### Usage
+
+In any kitty tab:
+
+```
+ac                # start a new Claude Code session in this tab
+ac -r             # resume the previous Claude Code session
+ac -o "<opts>"    # pass extra flags to claude (must be the last argument)
+```
+
+`ac` registers `(window_id, tab_id, pwd)` in the sessions file before launching, and removes its row on Claude Code exit.
+
+### Sessions file
+
+```
+${XDG_RUNTIME_DIR:-/tmp}/ac/sessions
+```
+
+Per-user tmpfs path. Tab-separated, no headers: `<window_id>\t<tab_id>\t<pwd>`. Cleared on reboot — the kitty windows the entries refer to are also gone after a reboot, so persisting them would only produce broken references.
+
+### Caveats
+
+- Kitty-only. Won't work in tmux, screen, or vanilla terminals (relies on `KITTY_WINDOW_ID`).
+- Multi-user safety in the `/tmp` fallback: if `XDG_RUNTIME_DIR` is unset on your system (rare on modern Linux desktops, possible on macOS or minimal containers), two users on the same machine collide on `/tmp/ac/sessions`. Set `XDG_RUNTIME_DIR` per-user, or don't use the fallback.
+
+If you're not on kitty, the `dispatching-prompts` skill still applies as a *concept* (file-path prompt injection between agent sessions in any terminal multiplexer that supports cross-window text injection) but the kitty-specific commands won't work as-is.
 
 ## Skill format
 

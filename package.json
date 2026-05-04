@@ -6,6 +6,7 @@
     "claude-dbc": "./bin/install.js"
   },
   "files": [
+    "ac",
     "bin/",
     "skills/",
     "README.md",
