@@ -1,25 +1,45 @@
 ---
 name: dispatching-prompts
-description: Use when sending a prompt from this Claude session to another Claude Code session running in a kitty window — typically a session in a separate directory (submodule, sibling repo, or other working tree) the current session cannot edit directly. Covers the `ac` launcher, kitty remote-control commands, file-path prompt injection, the `$'\r'` submit convention, and the prompt boilerplate that gives the receiving session the right context.
+description: Use when sending a prompt from this Claude session to another Claude Code session running in a kitty window — typically a session in a separate crate, subdirectory, submodule, or sibling repo. Covers the `ac` launcher, kitty remote-control commands, file-path prompt injection, the `$'\r'` submit convention, the prompt boilerplate that gives the receiving session the right context, and the rule that the main session does not edit crate-internal source files.
 metadata:
   category: technique
-  triggers: kitty, ac, dispatch, prompt, send-text, multi-session, cross-repo, submodule
+  triggers: kitty, ac, dispatch, prompt, send-text, multi-session, cross-repo, submodule, crate, subdirectory
 ---
 
 # Dispatching prompts
 
-For sending a prompt from this main session to another Claude Code session running in a kitty window. The pattern: the work belongs in a directory the current session can read but should not edit (a submodule, a sibling repo, a different working tree), so a separate Claude session is spawned there to do the work.
+## STOP — Role Detection (read this BEFORE acting on anything else in this skill)
+
+**If your first user-instruction in this conversation pointed you at a markdown prompt file to read** (any phrasing that names a prompt file as your task — e.g. "do the work described in <file>", "execute the work in <file>", "use the receiving-prompts skill to execute the work in <file>"), **you are NOT the session that should be using this skill.** You are an EXECUTOR.
+
+**Load the `receiving-prompts` skill instead.** That skill is the counterpart to this one. It establishes executor identity, names the specific failure modes you must avoid (recursive dispatch, editing files outside your boundary, "fixing" the prompt file), and tells you how to read your prompt file and execute the work. Stop applying this skill; load `receiving-prompts` and follow its rules.
+
+The rest of this skill — the workflow, the kitty commands, the prompt boilerplate spec — is for the *main* session that dispatches work. Applying it from an executor produces recursive dispatch (you spawn a sub-session, it spawns another, etc.).
+
+**Only continue reading this skill if you started fresh without a prompt-file pointer — i.e. you are the main session that needs to dispatch.**
+
+---
+
+For sending a prompt from this main session to another Claude Code session running in a kitty window. The pattern: the work belongs in a directory the main session shouldn't edit directly (a workspace crate, a submodule, a sibling repo, or any other working tree), so a separate Claude session is spawned there to do the work.
 
 ## When to Use
 
 - The user asks to "dispatch this to the X session", "send this to <component>", or "spawn a session in <directory>".
-- The work touches a directory the current session is treating as read-only (commonly a submodule or external repo referenced from the current project).
+- The work edits files inside any workspace crate or subdirectory the main session has chosen to delegate (typical scope: every crate under the workspace root).
 - A prompt file already exists and needs to reach a session in another directory.
 - The user mentions `kitty`, `ac`, or sending a prompt to another window.
 
-## The Cardinal Rule
+## The Two Cardinal Rules
 
-**Always confirm with the user before submitting the dispatch.** Spawn the window, run `ac`, type the file-path instruction — but do not press the final `$'\r'` until the user OKs it.
+### 1. Main session does not edit crate-internal source
+
+Main session edits stay limited to top-level orchestration: workspace `Cargo.toml`, `README.md`, `CHANGELOG.md`, `LICENSE`, build/deploy scripts, top-level docs, prompt files. Anything *inside* a crate directory — source files, that crate's `Cargo.toml`, doc-comment typos, dependency bumps, `.gitignore` tweaks — gets dispatched. The marginal cost of dispatch is small once this skill makes the mechanics trivial; the consistency benefit is large.
+
+The exact dividing line varies by project. Read the project's CLAUDE.md (or equivalent) to find which directories are "delegated" — when in doubt, ask the user.
+
+### 2. Always confirm with the user before submitting the dispatch
+
+Spawn the window, run `ac`, type the file-path instruction — but do not press the final `$'\r'` until the user OKs it.
 
 | Rationalization | Reality |
 |---|---|
@@ -27,6 +47,7 @@ For sending a prompt from this main session to another Claude Code session runni
 | "User authorized the work, dispatch is implied" | Dispatch is its own action — ask explicitly |
 | "Auto-dispatch saves time" | Time saved < cost of a wrong-target dispatch |
 | "I already asked once this session" | Per dispatch, not per session |
+| "It's just a typo in a doc comment, I'll fix it inline" | The "main doesn't edit crate source" rule has no exception for trivial edits — dispatch anyway |
 
 ## Workflow
 
@@ -101,10 +122,14 @@ Wait ~10 seconds for Claude Code to come up before injecting the prompt instruct
 ### 5. Inject the file-path instruction
 
 ```bash
-kitty @ send-text --match=id:<id> 'execute the prompt in <absolute path to prompt file>'
+kitty @ send-text --match=id:<id> 'use the receiving-prompts skill to execute the work in <absolute path to prompt file>'
 ```
 
-**Do NOT inject the prompt content itself** via `--from-file` or `--stdin`. Long content interacts badly with the input buffer (autocompletion, line-wrapping, multiline edge cases) and there's no good way to verify the new session received it cleanly. The receiving session reads the file itself.
+This phrasing deterministically loads the `receiving-prompts` skill in the receiving session, which establishes EXECUTOR identity at load time — before the session can auto-load `dispatching-prompts` (this skill) and misidentify itself as a dispatcher. The `receiving-prompts` skill then orchestrates the rest: reading the prompt file, loading the boilerplate the prompt names, doing the work, reporting back via the coordination channel.
+
+**Do NOT inject the prompt content itself** via `--from-file` or `--stdin`. Long content interacts badly with the input buffer (autocompletion, line-wrapping, multiline edge cases) and there's no good way to verify the new session received it cleanly. The receiving session reads the file itself via the file-path argument.
+
+**Phrasings to avoid**: `"execute the prompt in <file>"` and `"do the work described in <file>"` both auto-activate this skill's dispatch associations in the receiving session, producing recursive dispatch. The `"use the receiving-prompts skill"` prefix is the disambiguator that names the right skill.
 
 ### 6. Halt, confirm, submit
 

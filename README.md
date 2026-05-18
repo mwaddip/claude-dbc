@@ -2,10 +2,11 @@
 
 Skills for AI coding agent harnesses (Claude Code, Codex) that apply Bertrand Meyer's **Design by Contract** at the architecture level: a shared-contracts directory holds the source of truth, the main session writes contracts and prompts (never component code), and per-component subagent sessions implement against the contracts in their own boundaries.
 
-Two skills:
+Three skills:
 
 - **`design-by-contract-for-ai-agents`** — multi-component, multi-agent orchestration. Architecture, roles, workflow, contract format, prompt format, anti-patterns, and a Bootstrap Discovery flow that fires when you start (or join) a project that doesn't have contracts yet.
-- **`dispatching-prompts`** — companion skill: how to send a prompt from the main session to a component session running in another terminal window. Covers the file-path injection pattern and the kitty + `ac` setup the author uses.
+- **`dispatching-prompts`** — main-session companion: how to send a prompt from the main session to a component session running in another terminal window. Covers the file-path injection pattern and the kitty + `ac` setup the author uses.
+- **`receiving-prompts`** — executor-side counterpart to `dispatching-prompts`. Establishes EXECUTOR identity at load time and forbids the dispatched session from re-dispatching (running `kitty @ launch` / `ac` / spawning sub-sessions). Loaded by the main session's send-text phrasing — `use the receiving-prompts skill to execute the work in <file>.md` — so it activates *before* the receiving session can auto-load `dispatching-prompts` and accidentally start a recursive dispatch chain. The `dispatching-prompts` skill's top section now defers to this one for any session whose first user-instruction is a prompt-file pointer.
 
 ## Install
 
